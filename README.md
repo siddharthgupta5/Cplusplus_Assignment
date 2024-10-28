@@ -1,33 +1,23 @@
 # Deribit API Client
 
-This project provides a C++ client for interacting with the Deribit cryptocurrency derivatives exchange API. It includes both REST API and WebSocket functionality for real-time order book data.
-
-## Table of Contents
-- [Features](#features)
-- [Prerequisites](#prerequisites)
-- [Installation](#installation)
-- [Usage](#usage)
-- [File Structure](#file-structure)
-- [Contributing](#contributing)
-- [License](#license)
+This project involves an order execution and management system to trade on Deribit Test. It provides a C++ client for interacting with the Deribit cryptocurrency derivatives exchange API. It includes both REST API and WebSocket functionality for real-time order book data.
 
 ## Features
 
 - REST API client for Deribit
   - Authentication
-  - Place, modify, and cancel orders
+  - Place orders
+  - Modify orders
+  - Cancel Orders
   - Get positions
-  - Fetch order book data
+  - Get order book data
+  
 - WebSocket client for real-time order book updates
 - Command-line interface for interacting with the API
 
 ## Prerequisites
 
-- C++11 or later
-- libcurl
-- JsonCpp
-- Boost (Beast, Asio)
-- OpenSSL
+- C++11 or later, libcurl, JsonCpp, Boost (Beast, Asio) and OpenSSL.
 
 ## Installation
 
@@ -48,7 +38,7 @@ This project provides a C++ client for interacting with the Deribit cryptocurren
    g++ -std=c++11 websocket.cpp -o websocket_client -lboost_system -lssl -lcrypto
    ```
 
-## Usage
+## How to Use it?
 
 ### REST API Client
 
@@ -68,18 +58,11 @@ Run the compiled WebSocket client with an instrument name:
 ./websocket BTC-PERPETUAL
 ```
 
-This will connect to the Deribit WebSocket API and stream real-time order book data for the specified instrument.
+It will connect to the Deribit WebSocket API and stream real-time order book data for the specified instrument.
 
 ## File Structure
 
 - `main.cpp`: Contains the REST API client implementation and command-line interface.
 - `websocket.cpp`: Contains the WebSocket client implementation.
 
-## Contributing
-
-Contributions are welcome! Please see the [CONTRIBUTING.md](CONTRIBUTING.md) file for more information.
-
-## License
-
-This project is licensed under the [MIT License](LICENSE).
 
