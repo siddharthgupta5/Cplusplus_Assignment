@@ -1,3 +1,4 @@
+
 #include <iostream>
 #include <boost/beast/core.hpp>
 #include <boost/beast/websocket.hpp>
@@ -87,6 +88,7 @@ private:
             return fail(ec, "handshake");
 
         subscribe_to_orderbook();
+        start_heartbeat();
     }
 
     void subscribe_to_orderbook()
@@ -124,16 +126,25 @@ private:
         boost::ignore_unused(bytes_transferred);
 
         if (ec)
-            return fail(ec, "read");
+        {
+            if (ec == websocket::error::closed)
+            {
+                std::cout << "WebSocket connection closed. Reconnecting..." << std::endl;
+                reconnect();
+            }
+            else
+            {
+                return fail(ec, "read");
+            }
+        }
 
         std::string data = beast::buffers_to_string(buffer_.data());
-        
+
         Json::Value root;
         Json::Reader reader;
         if (reader.parse(data, root))
         {
-            std::cout << "Received message:" << std::endl;
-            std::cout << root.toStyledString() << std::endl;
+            process_orderbook_data(root);
         }
         else
         {
@@ -142,6 +153,59 @@ private:
 
         buffer_.consume(buffer_.size());
         read();
+    }
+
+    void process_orderbook_data(const Json::Value& root)
+    {
+        // Extract the relevant order book data from the JSON object
+        // and update your application's state accordingly
+        std::cout << "Received order book data:" << std::endl;
+        std::cout << root.toStyledString() << std::endl;
+    }
+
+    void reconnect()
+    {
+        // Implement logic to reconnect to the WebSocket server
+        // and resubscribe to the order book channel
+        std::cout << "Reconnecting to the WebSocket server..." << std::endl;
+        run(host_, "443", instrument_);
+    }
+
+    void send_heartbeat()
+    {
+        // Implement logic to send a heartbeat message to the WebSocket server
+        // to keep the connection alive
+        Json::Value heartbeat;
+        heartbeat["jsonrpc"] = "2.0";
+        heartbeat["id"] = 1;
+        heartbeat["method"] = "public/ping";
+
+        Json::FastWriter writer;
+        std::string message = writer.write(heartbeat);
+
+        ws_.async_write(net::buffer(message),
+            beast::bind_front_handler(&WebSocketClient::on_heartbeat, shared_from_this()));
+    }
+
+    void on_heartbeat(beast::error_code ec, std::size_t bytes_transferred)
+    {
+        boost::ignore_unused(bytes_transferred);
+
+        if (ec)
+            return fail(ec, "heartbeat");
+
+        // Schedule the next heartbeat
+        std::chrono::seconds heartbeat_interval(30);
+        ws_.get_executor().context().post(
+            [self = shared_from_this(), heartbeat_interval]() {
+                self->send_heartbeat();
+            }, heartbeat_interval);
+    }
+
+    void start_heartbeat()
+    {
+        // Start the heartbeat mechanism
+        send_heartbeat();
     }
 
     void fail(beast::error_code ec, char const* what)
