@@ -1,3 +1,5 @@
+
+
 #include<bits/stdc++.h>
 #include <iostream>
 #include <cstdlib>
@@ -15,7 +17,7 @@ class DeribitAPI {
 private:
     std::string access_token;
     steady_clock::time_point token_creation_time;
-    int token_expiration_time = 900;
+    int token_expiration_time = 500;
     const std::string BASE_URL = "https://test.deribit.com/api/v2/";
     const std::string CLIENT_ID = "6l0bNS3-";
     const std::string API_KEY = "bSZob13vaO402s3SZNSLcULRNkG97X47zhcxgWrq3og";
@@ -329,3 +331,4 @@ int main() {
 
     return 0;
 }
+
