@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GoQuant Trading Interface</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; }
+        select, input, button { margin: 5px; padding: 5px; }
+        #orderbook { display: flex; justify-content: space-around; }
+        .orderbook-side { width: 45%; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        .instrument-type {
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>GoQuant Trading Interface</h1>
+    
+    <div id="instrumentSelection">
+        <h2>Select Instrument</h2>
+        <select id="instrumentType">
+            <option value="spot">Spot</option>
+            <option value="futures">Futures</option>
+            <option value="options">Options</option>
+        </select>
+        <select id="instrumentSelect"></select>
+        <button onclick="subscribeToInstrument()">Subscribe</button>
+    </div>
+
+    <div id="orderbook">
+        <div class="orderbook-side">
+            <h3>Bids</h3>
+            <table id="bidsTable">
+                <tr><th>Price</th><th>Amount</th></tr>
+            </table>
+        </div>
+        <div class="orderbook-side">
+            <h3>Asks</h3>
+            <table id="asksTable">
+                <tr><th>Price</th><th>Amount</th></tr>
+            </table>
+        </div>
+    </div>
+
+    <canvas id="orderbook-chart"></canvas>
+
+    <h2>Place Order</h2>
+    <select id="orderType">
+        <option value="market">Market</option>
+        <option value="limit">Limit</option>
+    </select>
+    <select id="orderSide">
+        <option value="buy">Buy</option>
+        <option value="sell">Sell</option>
+    </select>
+    <input id="orderAmount" type="number" step="0.00000001" placeholder="Amount">
+    <input id="orderPrice" type="number" step="0.01" placeholder="Price (for limit orders)">
+    <button onclick="placeOrder()">Place Order</button>
+
+
+
+    <h2>Current Positions</h2>
+    <button onclick="getPositions()">Refresh Positions</button>
+    <div id="positions"></div>
+
+    <h2>Open Orders</h2>
+    <button onclick="getOpenOrders()">Refresh Open Orders</button>
+    <div id="openOrders"></div>
+
+    <script>
+        let ws;
+        let chart;
+        let availableInstruments = {};
+        let currentSubscription = null;
+
+        function connect() {
+            ws = new WebSocket('ws://localhost:8000/ws');
+            ws.onmessage = handleMessage;
+            ws.onclose = () => {
+                console.log('WebSocket closed. Reconnecting...');
+                setTimeout(connect, 1000);
+            };
+            ws.onopen = () => {
+                console.log('WebSocket connected. Fetching available instruments...');
+                fetchAvailableInstruments();
+            };
+        }
+
+        function handleMessage(event) {
+            const message = JSON.parse(event.data);
+            console.log('Received message:', message);
+            if (message.type === 'available_instruments') {
+                updateInstrumentSelect(message.data);
+            } else if (message.type === 'orderbook') {
+                updateOrderbook(message.instrument, message.data);
+            } else if (message.type === 'positions') {
+                updatePositions(message.data);
+            } else if (message.type === 'open_orders') {
+                updateOpenOrders(message.data);
+            } else if (message.type === 'order_response') {
+                handleOrderResponse(message.data);
+            }
+        }
+
+        function handleOrderResponse(data) {
+            if (data.success) {
+                console.log('Order action successful:', data.order);
+                alert('Order action successful!');
+                getOpenOrders(); // Refresh the open orders list
+            } else {
+                console.error('Order action failed:', data.error);
+                alert('Order action failed: ' + data.error);
+            }
+        }
+
+        function updateOrderbook(instrument, data) {
+            const bids = data.bids.map(bid => ({ price: bid[0], amount: bid[1] }));
+            const asks = data.asks.map(ask => ({ price: ask[0], amount: ask[1] }));
+
+            // Update the orderbook chart
+            chart.data.datasets[0].data = bids.map(bid => ({ x: bid.price, y: bid.amount }));
+            chart.data.datasets[1].data = asks.map(ask => ({ x: ask.price, y: ask.amount }));
+            chart.options.plugins.title.text = `Orderbook for ${instrument}`;
+            chart.update();
+
+            // Update the orderbook tables
+            updateOrderbookTable('bidsTable', bids);
+            updateOrderbookTable('asksTable', asks);
+        }
+
+        function updateOrderbookTable(tableId, data) {
+            const table = document.getElementById(tableId);
+            table.innerHTML = '<tr><th>Price</th><th>Amount</th></tr>';
+            data.forEach(item => {
+                const row = table.insertRow(-1);
+                row.insertCell(0).textContent = item.price.toFixed(2);
+                row.insertCell(1).textContent = item.amount.toFixed(8);
+            });
+        }
+
+        function updatePositions(positions) {
+            const positionsElement = document.getElementById('positions');
+            let positionsHtml = '<table><tr><th>Instrument</th><th>Size</th><th>Average Price</th><th>Direction</th></tr>';
+            positions.forEach(position => {
+                positionsHtml += `<tr>
+                    <td>${position.instrument_name}</td>
+                    <td>${position.size}</td>
+                    <td>${position.average_price}</td>
+                    <td>${position.direction}</td>
+                </tr>`;
+            });
+            positionsHtml += '</table>';
+            positionsElement.innerHTML = positionsHtml;
+        }
+
+        function updateOpenOrders(orders) {
+            const openOrdersElement = document.getElementById('openOrders');
+            let ordersHtml = '<table><tr><th>Order ID</th><th>Instrument</th><th>Amount</th><th>Price</th><th>Type</th><th>Side</th><th>Actions</th></tr>';
+            orders.forEach(order => {
+                ordersHtml += `<tr>
+                    <td>${order.order_id}</td>
+                    <td>${order.instrument_name}</td>
+                    <td>${order.amount}</td>
+                    <td>${order.price}</td>
+                    <td>${order.order_type}</td>
+                    <td>${order.direction}</td>
+                    <td>
+                        <button onclick="cancelOrder('${order.order_id}')">Cancel</button>
+                        <button onclick="showModifyOrderForm('${order.order_id}', ${order.amount}, ${order.price})">Modify</button>
+                    </td>
+                </tr>`;
+            });
+            ordersHtml += '</table>';
+            openOrdersElement.innerHTML = ordersHtml;
+        }
+
+        function updateInstrumentSelect(instruments) {
+            availableInstruments = instruments;
+            const instrumentType = document.getElementById('instrumentType').value;
+            const instrumentSelect = document.getElementById('instrumentSelect');
+            instrumentSelect.innerHTML = '<option value="">Select an instrument</option>';
+            
+            instruments[instrumentType].forEach(instrument => {
+                const option = document.createElement('option');
+                option.value = instrument.instrument_name;
+                option.textContent = `${instrument.instrument_name} (${instrument.settlement_period})`;
+                instrumentSelect.appendChild(option);
+            });
+        }
+
+        document.getElementById('instrumentType').addEventListener('change', function() {
+            updateInstrumentSelect(availableInstruments);
+        });
+
+        function subscribeToInstrument() {
+            const instrument = document.getElementById('instrumentSelect').value;
+            if (instrument) {
+                if (currentSubscription) {
+                    unsubscribeFromInstrument(currentSubscription);
+                }
+                ws.send(JSON.stringify({action: 'subscribe', instrument: instrument}));
+                currentSubscription = instrument;
+                console.log(`Subscribed to ${instrument}`);
+            } else {
+                alert('Please select an instrument');
+            }
+        }
+
+        function unsubscribeFromInstrument(instrument) {
+            ws.send(JSON.stringify({action: 'unsubscribe', instrument: instrument}));
+            console.log(`Unsubscribed from ${instrument}`);
+        }
+
+        function placeOrder() {
+            const instrumentType = document.getElementById('instrumentType').value;
+            const symbol = document.getElementById('instrumentSelect').value;
+            const orderType = document.getElementById('orderType').value;
+            const side = document.getElementById('orderSide').value;
+            const amount = parseFloat(document.getElementById('orderAmount').value);
+            const price = parseFloat(document.getElementById('orderPrice').value);
+
+            if (!symbol) {
+                alert('Please select an instrument');
+                return;
+            }
+
+            if (!amount || amount <= 0) {
+                alert('Please enter a valid amount');
+                return;
+            }
+
+            const order = {
+                action: 'place_order',
+                instrument_type: instrumentType,
+                symbol: symbol,
+                type: orderType,
+                side: side,
+                amount: amount
+            };
+
+            if (orderType === 'limit' && (!price || price <= 0)) {
+                alert('Please enter a valid price for limit orders');
+                return;
+            }
+
+            if (orderType === 'limit') {
+                order.price = price;
+            }
+
+            console.log('Sending place_order request:', order);
+            ws.send(JSON.stringify(order));
+        }
+
+        function cancelOrder(orderId) {
+            console.log('Sending cancel_order request:', orderId);
+            ws.send(JSON.stringify({
+                action: 'cancel_order',
+                order_id: orderId
+            }));
+        }
+
+        function showModifyOrderForm(orderId, currentAmount, currentPrice) {
+            const formHtml = `
+                <form id="modifyOrderForm-${orderId}" onsubmit="modifyOrder('${orderId}', ${currentAmount}, ${currentPrice}); return false;">
+                    <input type="number" id="modifyAmount-${orderId}" value="${currentAmount}" step="0.00000001" placeholder="New Amount (optional)">
+                    <input type="number" id="modifyPrice-${orderId}" value="${currentPrice}" step="0.01" placeholder="New Price (optional)">
+                    <button type="submit">Modify Order</button>
+                </form>
+            `;
+            document.getElementById('openOrders').insertAdjacentHTML('beforeend', formHtml);
+        }
+
+        function modifyOrder(orderId, currentAmount, currentPrice) {
+            const newAmount = document.getElementById(`modifyAmount-${orderId}`).value;
+            const newPrice = document.getElementById(`modifyPrice-${orderId}`).value;
+            
+            const modifyOrderRequest = {
+                action: 'modify_order',
+                order_id: orderId
+            };
+
+            if (newAmount && newAmount !== currentAmount.toString()) {
+                modifyOrderRequest.amount = parseFloat(newAmount);
+            }
+
+            if (newPrice && newPrice !== currentPrice.toString()) {
+                modifyOrderRequest.price = parseFloat(newPrice);
+            }
+
+            if (modifyOrderRequest.amount || modifyOrderRequest.price) {
+                console.log('Sending modify_order request:', modifyOrderRequest);
+                ws.send(JSON.stringify(modifyOrderRequest));
+            } else {
+                console.log('No changes to modify in the order');
+            }
+
+            // Remove the form after submission
+            document.getElementById(`modifyOrderForm-${orderId}`).remove();
+        }
+
+        function fetchAvailableInstruments() {
+            ws.send(JSON.stringify({action: 'get_available_instruments'}));
+        }
+
+        function initChart() {
+            const ctx = document.getElementById('orderbook-chart').getContext('2d');
+            chart = new Chart(ctx, {
+                type: 'scatter',
+                data: {
+                    datasets: [{
+                        label: 'Bids',
+                        data: [],
+                        backgroundColor: 'rgba(0, 255, 0, 0.5)'
+                    }, {
+                        label: 'Asks',
+                        data: [],
+                        backgroundColor: 'rgba(255, 0, 0, 0.5)'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        x: {
+                            type: 'linear',
+                            position: 'bottom',
+                            title: {
+                                display: true,
+                                text: 'Price'
+                            }
+                        },
+                        y: {
+                            type: 'linear',
+                            position: 'left',
+                            title: {
+                                display: true,
+                                text: 'Amount'
+                            }
+                        }
+                    },
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'Orderbook'
+                        }
+                    }
+                }
+            });
+        }
+
+        function getPositions() {
+            ws.send(JSON.stringify({action: 'get_positions'}));
+        }
+
+        function getOpenOrders() {
+            ws.send(JSON.stringify({action: 'get_open_orders'}));
+        }
+
+        window.onload = () => {
+            connect();
+            initChart();
+            getPositions();
+            getOpenOrders();
+        };
+    </script>
+</body>
+</html>
